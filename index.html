@@ -1,115 +1,172 @@
 <!DOCTYPE html>
 <html>
-<head>
-	<meta charset="utf-8">
-    <_meta http-equiv="refresh" content="3" >
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Minesweeper</title>
-	<script type="text/javascript" src="main.js"></script>
-	<style>
-		body{
-			background-color: black;
-		}
+    <head>
+        <meta charset="utf-8">
+        <!--debug <meta http-equiv="refresh" content="3" >-->
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Minesweeper</title>
+        <script type="text/javascript" src="main.js"></script>
+        <style>
+
+@media (prefers-color-scheme: dark) {
+    body {
+        background-color: black;
+        color: white;
+    }
+}
 
         .game-container {
             border: solid red;
+
             font-size: x-large;
             width: fit-content;
         }
 
-        .game-menu{
+        .game-menu {
             border: solid green;
 
             display: flex;
             flex-direction: row;
             justify-content: space-around;
             align-items: center;
-            color: white;
+
+            & div {
+                border: solid cyan;
+            }
+
+            & span, button {
+                font-size: x-large;
+            }
         }
-        .game-menu div{
-            border: solid cyan;
-        }
-        .game-menu span, button {
-            font-size: x-large;
-        }
+
 
         #game-field {
             border: solid blue;
 
             display: grid;
             grid-template-columns: repeat(3, 1fr);
+            justify-items: center;
         }
 
+        /* cell-related: */
         .cell {
             border: solid silver;
 
             width: 25px;
             height: 25px;
-            margin: 2px;
+            margin: 1px;
 
             background-color: azure;
             text-align: center;
 
-            cursor: pointer;  /* TODO: forbid click on opened cells */
+            cursor: pointer;
+
+            &.val0 {
+                background-color: silver;
+                cursor: default;
+            }
+            &.val1 {
+                color: blue;
+                cursor: default;
+            }
+            &.val2 {
+                color: green;
+                cursor: default;
+            }
+            &.val3 {
+                color: red;
+                cursor: default;
+            }
+            &.val4 {
+                color: darkblue;
+                cursor: default;
+            }
+            &.val5 {
+                color: brown;
+                cursor: default;
+            }
+            &.val6 {
+                color: aqua;
+                cursor: default;
+            }
+            &.val7 {
+                color: black;
+                cursor: default;
+            }
+            &.val8 {
+                color: gray;
+                cursor: default;
+            }
+            &.valmine {
+                color: black;
+                background-color: red;
+                cursor: default;
+            }
+            &.valflag {
+                color: black;
+                background-color: yellow;
+            }
+
         }
-        /* https://www.w3.org/wiki/CSS/Properties/color/keywords */
-        .val0{
-            background-color: silver;
-            cursor: default;
+
+        /* options-related: */
+        .difficulty {
+            display: grid;
+            justify-content: space-around;
+
+            & label {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+            }
         }
-        .val1{
-            color: blue;
-            cursor: default;
+
+        .difficulty-custom label {
+            justify-content: space-between;
         }
-        .val2{
-            color: green;
-            cursor: default;
+
+        .submit-buttons {
+            display: flex;
+            justify-content: space-around;
+            flex-direction: row-reverse;
         }
-        .val3{
-            color: red;
-            cursor: default;
-        }
-        .val4{
-            color: darkblue;
-            cursor: default;
-        }
-        .val5{
-            color: brown;
-            cursor: default;
-        }
-        .val6{
-            color: aqua;
-            cursor: default;
-        }
-        .val7{
-            color: black;
-            cursor: default;
-        }
-        .val8{
-            color: gray;
-            cursor: default;
-        }
-        .valmine{
-            color: black;
-            background-color: red;
-            cursor: default;
-        }
-        .valflag{
-            color: black;
-            background-color: yellow;
-        }
-	</style>
-</head>
-<body>
-    <!--TODO: add level-select -->
-    <!--TODO: add timer & mines-lef -->
-    <div class="game-container">
-        <div class="game-menu">
-            <div class="score"><span id="score">???</span></div>
-            <div class="timer"><span id="timer">???<span></div>
-            <div class="new-game"><button id="new-game">&#8634;</button></div>
+
+        </style>
+    </head>
+    <body>
+        <div class="game-container">
+            <div class="game-menu">
+                <div class="new-game"><button id="new-game" type="reset">&#8634;</button></div>
+                <div class="remaining-flags"><span id="remaining-flags">000</span><span>&#128681;</span></div>
+                <div class="stopwatch"><span id="stopwatch">000</span><span>&#9201;</span></div>
+                <div class="openOptions"><button id="open-options" onClick="options.showModal()">&#9965;</button></div>
+            </div>
+            <div id="game-field" oncontextmenu="event.preventDefault()"></div>
         </div>
-        <div id="game-field"></div>
-    </div>
-</body>
+
+        <dialog id="options" aria-label="options">
+            <form method="dialog" id="options-form">
+                <div>
+                    <div class="difficulty difficulty-predefined">
+                        <label><input type="radio" name="difficulty" value="easiest" checked/>easiest (10x10x10)</label>
+                        <label><input type="radio" name="difficulty" value="easy"/>easy (9x9x10)</label>
+                        <label><input type="radio" name="difficulty" value="medium"/>medium (16x16x40)</label>
+                        <label><input type="radio" name="difficulty" value="hard"/>hard (30x16x99)</label>
+                        <hr/>
+                        <label><input type="radio" name="difficulty" value="custom"/>custom</label>
+                    </div>
+                    <div class="difficulty difficulty-custom">
+                        <label>width <input name="width" value="7" inputmode="numeric" pattern="\d+" minlength="1" maxlength="2" required/></label>
+                        <label>height <input name="height" value="5" inputmode="numeric" pattern="\d+" minlength="1" maxlength="2" required/></label>
+                        <label>mines <input name="mines" value="3" inputmode="numeric" pattern="\d+" minlength="1" maxlength="4" required/></label>
+                    </div>
+                    <div class="submit-buttons">
+                        <!-- elements order is important: we check that value==accept, on enter first submit button sent -->
+                        <button value="accept" type="submit">accept</button>
+                        <button value="cancel" type="submit">cancel</button>
+                    </div>
+                </div>
+            </form>
+        </dialog>
+    </body>
 </html>
