@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+    <_meta http-equiv="refresh" content="3" >
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Minesweeper</title>
+	<script type="text/javascript" src="main.js"></script>
+	<style>
+		body{
+			background-color: black;
+		}
+
+        .game-container {
+            border: solid red;
+            font-size: x-large;
+            width: fit-content;
+        }
+
+        .game-menu{
+            border: solid green;
+
+            display: flex;
+            flex-direction: row;
+            justify-content: space-around;
+            align-items: center;
+            color: white;
+        }
+        .game-menu div{
+            border: solid cyan;
+        }
+        .game-menu span, button {
+            font-size: x-large;
+        }
+
+        #game-field {
+            border: solid blue;
+
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+        }
+
+        .cell {
+            border: solid silver;
+
+            width: 25px;
+            height: 25px;
+            margin: 2px;
+
+            background-color: azure;
+            text-align: center;
+
+            cursor: pointer;  /* TODO: forbid click on opened cells */
+        }
+        /* https://www.w3.org/wiki/CSS/Properties/color/keywords */
+        .val0{
+            background-color: silver;
+            cursor: default;
+        }
+        .val1{
+            color: blue;
+            cursor: default;
+        }
+        .val2{
+            color: green;
+            cursor: default;
+        }
+        .val3{
+            color: red;
+            cursor: default;
+        }
+        .val4{
+            color: darkblue;
+            cursor: default;
+        }
+        .val5{
+            color: brown;
+            cursor: default;
+        }
+        .val6{
+            color: aqua;
+            cursor: default;
+        }
+        .val7{
+            color: black;
+            cursor: default;
+        }
+        .val8{
+            color: gray;
+            cursor: default;
+        }
+        .valmine{
+            color: black;
+            background-color: red;
+            cursor: default;
+        }
+        .valflag{
+            color: black;
+            background-color: yellow;
+        }
+	</style>
+</head>
+<body>
+    <!--TODO: add level-select -->
+    <!--TODO: add timer & mines-lef -->
+    <div class="game-container">
+        <div class="game-menu">
+            <div class="score"><span id="score">???</span></div>
+            <div class="timer"><span id="timer">???<span></div>
+            <div class="new-game"><button id="new-game">&#8634;</button></div>
+        </div>
+        <div id="game-field"></div>
+    </div>
+</body>
+</html>
