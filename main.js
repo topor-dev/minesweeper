@@ -1,22 +1,28 @@
-// TODO: prevent first-click lose?
+// TODO: prevent first-click lose? then restrict: mines < x*y
 
 CellSpecialValue = Object.freeze({
-    mine: "mine",
-    flag: "flag",
-    unFlag: "unflag",
+    MINE: "mine",
+    FLAG: "flag",
+    UNFLAG: "UNFLAG",
 })
 
 const GameState = Object.freeze({
-    start: 0,
-    play: 1,
-    finish: 2,
+    START: 0,
+    PLAY: 1,
+    FINISH: 2,
+})
+
+const DifficultyLevels = Object.freeze({
+    easiest: { x: 10, y: 10, mines: 10 },
+    easy: { x: 9, y: 9, mines: 10 },
+    medium: { x: 16, y: 16, mines: 40 },
+    hard: { x: 30, y: 16, mines: 99 },
 })
 
 
 class Field {
     MINE = -1
-    constructor(setup) {
-        const { x, y, mines } = setup;
+    constructor({ x, y, mines }) {
         this.x = x;
         this.y = y;
         const totalCells = x * y;
@@ -32,7 +38,7 @@ class Field {
             emptyCells[i] = i;
         }
         for (let i = 0; i < mines; i++) {
-            const index = this.getRandomInt(emptyCells.length)
+            const index = this.getRandomInt_(emptyCells.length)
             const mineIndex = emptyCells[index];
             this.r[mineIndex] = this.MINE;
             mineIndices.push(mineIndex);
@@ -41,7 +47,7 @@ class Field {
 
         // fil numbers
         for (let mineIndex of mineIndices) {
-            for (let index of this._index2neighbors(mineIndex)) {
+            for (let index of this.getNeighborsByIndex_(mineIndex)) {
                 if (this.r[index] === this.MINE) continue;
                 this.r[index] += 1;
             }
@@ -50,23 +56,24 @@ class Field {
         this.mineIndices = mineIndices;
     }
 
-    getRandomInt(max) {
+    getRandomInt_(max) {
         return Math.floor(Math.random() * max);
     }
 
-    _index2posUnsafe(index) {  // return (x, y)
+    convertIndex2posUnsafe_(index) {  // return (x, y)
         return [index % this.x, Math.floor(index / this.x)];
     }
-    _pos2indexUnsafe(x, y) {
+
+    convertPos2indexUnsafe_(x, y) {
         return x + this.x * y;
     }
-    _isValidPos(x, y) {
+    isValidPos_(x, y) {
         if (x < 0 || y < 0) return false;
         if (x >= this.x || y >= this.y) return false;
         return true;
     }
-    _index2neighbors(index) {
-        const [x, y] = this._index2posUnsafe(index);
+    getNeighborsByIndex_(index) {
+        const [x, y] = this.convertIndex2posUnsafe_(index);
         const neightbors = [];
 
         for (let i = -1; i <= 1; i++) {
@@ -74,8 +81,8 @@ class Field {
                 if (i == 0 && j == 0) continue;
                 const xm = x + i;
                 const ym = y + j;
-                if (this._isValidPos(xm, ym)) {
-                    neightbors.push(this._pos2indexUnsafe(xm, ym));
+                if (this.isValidPos_(xm, ym)) {
+                    neightbors.push(this.convertPos2indexUnsafe_(xm, ym));
                 }
             }
         }
@@ -89,8 +96,9 @@ class Field {
         return this.r[index];
     }
 
-    findCellsToOpenAroundEmptyCell(index) {
+    findCellsToOpenAroundEmptyCell_(/** @type {number} */ index) {
         const toVisit = new Set([index])
+        /** @type {object.<string, Array<number>>} */
         const found = {}
 
         // relying on set can change size during iteration
@@ -100,7 +108,7 @@ class Field {
             found[value].push(index)
 
             if (value == 0) {  // look for neighbors only if its also an empty cell
-                for (let newIndex of this._index2neighbors(index)) {
+                for (let newIndex of this.getNeighborsByIndex_(index)) {
                     if (toVisit.has(newIndex)) continue;
                     toVisit.add(newIndex)
                 }
@@ -112,86 +120,96 @@ class Field {
 
 class GameEngine {
     constructor(setup, viewHandlers) {
-        const { mines, field } = setup;
-        this.setViewHandlers(viewHandlers);
+        const { mines } = setup;
+
         this.totalMines = mines;
-        this.field = field || new Field(setup);
+        this.field = new Field(setup);
 
         this.cellsWithoutMines = this.field.totalCells - this.totalMines
         this.openCells = new Set()
         this.flagCells = new Set()
-
-        this.gameState = GameState.start
-
-        this.updateRemainingFlags();
-
         this.playedSec = 0;
+        this.gameState = GameState.START
+
+        this.setViewHandlers_(viewHandlers);
+
+        this.updateRemainingFlags_();
+        this.setStopwatch_(0)
     }
 
-    setViewHandlers(viewHandlers) {
+    setViewHandlers_({ revealCell, setRemainingFlags, setStopwatch, showWin, showLose }) {
         this.view = {
-            reveal: viewHandlers.revealCell,
-            setBatch: viewHandlers.setBatchRawValue,
-            setRemainingFlags: viewHandlers.setRemainingFlags,
-            setStopwatch: viewHandlers.setStopwatch,
+            revealCell,
+            setRemainingFlags,
+            setStopwatch,
+            showWin,
+            showLose,
         }
     }
 
-    onClick(event) {
-        switch (this.gameState) {
-            case GameState.finish:
-                return;
-            case GameState.start:
-                this.gameState = GameState.play;
-                this.startGameFirstAction()
-                break;
-        }
-
-        const { index, isFlag } = event;
-
-        if (isFlag) {
-            if (this.openCells.has(index)) {
-                return;
-            }
-            if (this.flagCells.has(index)) {
-                this.flagCells.delete(index)
-                this.view.reveal(event, CellSpecialValue.unFlag)
-            } else {
-                this.flagCells.add(index)
-                this.view.reveal(event, CellSpecialValue.flag)
-            }
-            this.updateRemainingFlags();
+    toggleFlagCell_(index) {
+        if (this.openCells.has(index)) {
             return;
         }
+        if (this.flagCells.has(index)) {
+            this.flagCells.delete(index)
+            this.view.revealCell({ index }, CellSpecialValue.UNFLAG)
+        } else {
+            this.flagCells.add(index)
+            this.view.revealCell({ index }, CellSpecialValue.FLAG)
+        }
+        this.updateRemainingFlags_();
+    }
 
+    openCell_(index) {
         const cellValue = this.field.open(index);
         this.openCells.add(index)
-        this.view.reveal(event, cellValue);
-
-        if (cellValue === CellSpecialValue.mine) {
-            this.lose()
-            return
-        }
+        this.view.revealCell({ index }, cellValue);
 
         if (cellValue === 0) {
-            const value2indices = this.field.findCellsToOpenAroundEmptyCell(index)
+            const value2indices = this.field.findCellsToOpenAroundEmptyCell_(index)
             for (let value of Object.keys(value2indices)) {
                 for (let index of value2indices[value]) {
-                    this.view.reveal({ index }, parseInt(value));
+                    this.view.revealCell({ index }, parseInt(value));
                     this.openCells.add(index)
                 }
             }
         }
-
-        if (this.isWin()) {
-            this.win()
-            return
-        }
-        this.gameState = GameState.play
-        this.updateRemainingFlags()
+        return cellValue;
     }
 
-    updateRemainingFlags() {
+    onClick(event) {
+        switch (this.gameState) {
+            case GameState.FINISH:
+                return;
+            case GameState.START:
+                this.gameState = GameState.PLAY;
+                this.startGameFirstAction_()
+                break;
+        }
+        this.gameState = GameState.PLAY
+
+        const { index, isFlag } = event;
+
+        if (isFlag) {
+            this.toggleFlagCell_(index)
+            return;
+        }
+
+        const cellValue = this.openCell_(index)
+
+        if (cellValue === CellSpecialValue.mine) {
+            this.lose_()
+            return
+        }
+        if (this.isWin_()) {
+            this.win_()
+            return
+        }
+        this.updateRemainingFlags_()
+    }
+
+    updateRemainingFlags_() {
         for (const index of this.flagCells.keys()) {
             if (this.openCells.has(index)) {
                 this.flagCells.delete(index);
@@ -200,119 +218,121 @@ class GameEngine {
         this.view.setRemainingFlags(this.totalMines - this.flagCells.size)
     }
 
-    isWin() {
+    isWin_() {
         return this.openCells.size === this.cellsWithoutMines
     }
 
-    startGameFirstAction() {
-        this._startStopwatch()
+    startGameFirstAction_() {
+        this.startStopwatch_()
     }
 
-    stopwatchTick() {
+    stopwatchTick_() {
         if (this.gameState == GameState.finishGame) {
-            this._stopStopwatch()
+            this.stopStopwatch_()
             return
         }
         this.playedSec += 1;
-        this.view.setStopwatch(this.playedSec)
+        this.setStopwatch_(this.playedSec)
     }
 
-    _startStopwatch() {
-        this._stopwatchId = setInterval(this.stopwatchTick.bind(this), 1000)
+    setStopwatch_(number) {
+        this.view.setStopwatch(number)
     }
-    _stopStopwatch() {
+
+    startStopwatch_() {
+        this._stopwatchId = setInterval(this.stopwatchTick_.bind(this), 1000)
+    }
+    stopStopwatch_() {
         clearInterval(this._stopwatchId)
     }
 
-    finishGame() {
-        this.gameState = GameState.finish
-        this.view.setBatch(this.field.mineIndices, CellSpecialValue.mine)
-        this._stopStopwatch()
+    finishGame_() {
+        this.gameState = GameState.FINISH
+        this.stopStopwatch_()
     }
 
-    lose() {
-        this.finishGame()
-        setTimeout(() => alert("you lose"), 1)
+    lose_() {
+        this.finishGame_()
+        this.view.showLose(this.field.mineIndices)
     }
 
-    win() {
-        this.finishGame()
-        setTimeout(() => alert("you win"), 1)
+    win_() {
+        this.finishGame_()
+        this.view.showWin(this.field.mineIndices)
     }
 
     clear() {  // stop timers
-        this._stopStopwatch()
+        this.stopStopwatch_()
     }
 }
 
 
 class GameView {
-    constructor(uiElements, setup) {
+    constructor(uiElements) {
         const {
             gameFieldElement,
             remainingFlagsElement,
             stopwatchElement,
         } = uiElements;
 
-        this.index2element = {}
-        this.resizeField(gameFieldElement, setup);
+        this.index2cellHTMLElement = {}
 
+        this.gameFieldElement = gameFieldElement
         this.remainingFlagsElement = remainingFlagsElement;
         this.stopwatchElement = stopwatchElement
 
+        this.resetField({ x: 9, y: 9 });
         this.setStopwatch(0)
         this.setRemainingFlags(0)
     }
 
-    setCallback({ onClick }) {
+    setCallbacks({ onClick }) {
         this.engineClickHandler = onClick;
     }
 
-    resizeField(parent, setup) {  // static
-        // probably move to wrapper class
+    resetField({ x, y }) {
+        console.assert(x > 0 && y > 0, `resetField: invalid x or y values: ${x} ${y}`)
 
-        const { x, y } = setup;
-        console.assert(x > 0 && y > 0, `resizeField: invalid x or y values: ${x} ${y}`)
-
-        parent.style.gridTemplateColumns = "1fr ".repeat(x);
-        parent.innerHTML = "";
+        this.gameFieldElement.style.gridTemplateColumns = "1fr ".repeat(x);
+        this.gameFieldElement.innerHTML = "";
+        this.index2cellHTMLElement = {}
 
         const r = [];
-        for (let i = parent.childElementCount; i < x * y; i++) {
+        for (let i = 0; i < x * y; i++) {
             const elem = document.createElement("div");
             elem.className = "cell";
-            elem.addEventListener("click", this.onCellLeftClick.bind(this));
-            elem.addEventListener("contextmenu", this.onCellRightClick.bind(this));
+            elem.addEventListener("click", this.onCellLeftClick_.bind(this));
+            elem.addEventListener("contextmenu", this.onCellRightClick_.bind(this));
             elem.dataset.index = i;
             r.push(elem)
-            this.index2element[i] = elem;
+            this.index2cellHTMLElement[i] = elem;
         }
-        parent.append.apply(parent, r)
+        this.gameFieldElement.append.apply(this.gameFieldElement, r)
     }
 
-    onCellLeftClick(e) {
-        this.onCellClick(e, false);
+    onCellLeftClick_(e) {
+        this.onCellClick_(e, false);
     }
-    onCellRightClick(e) {
-        this.onCellClick(e, true);
+    onCellRightClick_(e) {
+        this.onCellClick_(e, true);
     }
 
-    onCellClick(e, rightClick) {
+    onCellClick_(e, rightClick) {
         e.preventDefault();
 
-        const target = e.target;
-        const index = parseInt(target.dataset.index);
-
-        this.engineClickHandler({ index, target, isFlag: rightClick })
+        this.engineClickHandler({
+            index: parseInt(e.target.dataset.index),
+            isFlag: rightClick,
+        })
     }
 
-    _value2symbol(value) {
+    value2symbol_(value) {
         switch (value) {
             case CellSpecialValue.mine:
                 return "*";
-            case CellSpecialValue.flag:
+            case CellSpecialValue.FLAG:
                 return "&#128681;";
-            case CellSpecialValue.unFlag:
+            case CellSpecialValue.UNFLAG:
                 return "";
             case 0:
             case "0":
@@ -322,32 +342,41 @@ class GameView {
         }
     }
 
-    revealValue({ index }, value) {
-        const target = this.index2element[index]
-        let assign = this._value2symbol(value);
+    revealCell({ index }, value) {
+        const target = this.index2cellHTMLElement[index]
         let className = null;
         switch (value) {
             case CellSpecialValue.mine:
                 className = "valmine";
                 break;
-            case CellSpecialValue.flag:
+            case CellSpecialValue.FLAG:
                 className = "valflag";
                 break;
             default:
                 className = "val" + value
         }
-        target.innerHTML = assign;
+        target.innerHTML = this.value2symbol_(value);
         target.classList.remove("valflag")  // any value can replace flag
         if (className) {
-            target.classList.add("cell", className)
+            target.classList.add(className)
         }
     }
 
-    setBatchRawValue(indices, value) {
+    showMines_(indices) {
         for (let index of indices) {
-            const target = this.index2element[index]
-            target.innerHTML = this._value2symbol(value);
+            const target = this.index2cellHTMLElement[index]
+            target.innerHTML = this.value2symbol_(CellSpecialValue.mine);
         }
+    }
+
+    showWin(mineIndices) {
+        this.showMines_(mineIndices);
+        setTimeout(() => alert("you win"), 1)
+    }
+
+    showLose(mineIndices) {
+        this.showMines_(mineIndices);
+        setTimeout(() => alert("you lost"), 1)
     }
 
     setRemainingFlags(number) {
@@ -365,21 +394,18 @@ class GameView {
     }
 }
 
+const foo = 42
 
+// FIXME: extract predefined configs
 class OptionsFormController {
-    constructor({ newGame }) {
-        // FIXME: autogenerate options html-element based on this:
-        this.levels = {
-            easiest: { x: 10, y: 10, mines: 10 },
-            easy: { x: 9, y: 9, mines: 10 },
-            medium: { x: 16, y: 16, mines: 40 },
-            hard: { x: 30, y: 16, mines: 99 },
-        };
-        this.defaultLevel = "easy";
+    constructor({ newGame, difficultyLevels }) {
+        // TODO: autogenerate options html-element based on this:
+        this.levels = difficultyLevels;
+        this.newGameCallback = newGame
+    }
 
-        this.lastConfig = this.levels.easy
-
-        this.newGameHandler = newGame
+    get defaultConfig() {
+        return this.levels.easiest;
     }
 
     onSubmit(event) {
@@ -387,7 +413,7 @@ class OptionsFormController {
             return
         }
         const { target } = event
-        const difficulty = target.elements["difficulty"].value || this.defaultLevel
+        const difficulty = target.elements["difficulty"].value;  // might be custom (not in levels)
 
         let config = this.levels[difficulty]
         if (!config) {
@@ -396,7 +422,7 @@ class OptionsFormController {
             const mines = parseInt(target.elements["mines"].value);
 
             if (x < 1 || y < 1 || mines < 1) {
-                alert(`invalid parameters, custom values must be greater than 1`)
+                alert(`invalid parameters, custom values must be greater than or equal to 1`)
                 event.preventDefault();
                 return;
             }
@@ -413,39 +439,42 @@ class OptionsFormController {
 
     startNewGame(params) {
         const { config } = params || {};
-        this.lastConfig = config || this.lastConfig;
-        this.newGameHandler(this.lastConfig)
+        this.newGameCallback(config)
     }
 }
 
+class GameSessionHolder {
+    constructor(view) {
+        this.lastGame = null;
+        this.lastConfig = null;
 
-window.addEventListener("load", () => {
+        this.view = view;
+    }
 
-    const gameFieldElement = document.getElementById("game-field");
-    const remainingFlagsElement = document.getElementById("remaining-flags")
-    const stopwatchElement = document.getElementById("stopwatch")
+    playAgain() {
+        this.lastGame?.clear();
+        console.assert(this.lastConfig, "playAgain: lastConfig is not set, probably need to call applyConfigAndPlay")
+        const config = this.lastConfig;
+        const view = this.view
 
-    function newGame(config) {
-        if (this._oldGame !== undefined) {  // dirty hack to clear old timers on reset
-            this._oldGame.clear()
-        }
+        view.resetField(config);
 
-        const view = new GameView({ gameFieldElement, remainingFlagsElement, stopwatchElement }, config)
         const game = new GameEngine(
             config,
             {
-                revealCell: view.revealValue.bind(view),
-                setBatchRawValue: view.setBatchRawValue.bind(view),
+                revealCell: view.revealCell.bind(view),
                 setRemainingFlags: view.setRemainingFlags.bind(view),
                 setStopwatch: view.setStopwatch.bind(view),
+                showWin: view.showWin.bind(view),
+                showLose: view.showLose.bind(view),
             }
         );
-        view.setCallback({ onClick: game.onClick.bind(game) })
+        view.setCallbacks({ onClick: game.onClick.bind(game) })
 
-        this._oldGame = game;
+        this.lastGame = game;
 
         // debug:
-        if (window.debug) {
+        if (window?.debug) {
             let s = "";
             for (let i = 0; i < config.x * config.y; i++) {
                 if (!(i % config.x)) {
@@ -458,12 +487,56 @@ window.addEventListener("load", () => {
             }
             console.log(s)
         }
+        // end debug
     }
 
-    const options = new OptionsFormController({ newGame });
-    document.getElementById("options-form").addEventListener("submit", options.onSubmit.bind(options))
-    document.getElementById("new-game").addEventListener("click", options.startNewGame.bind(options))
+    applyConfigAndPlay(config) {
+        this.lastConfig = config;
+        this.playAgain();
+    }
+}
 
-    options.startNewGame.bind(options)()
+function populateHTMLDifficultyVariants(parent, difficultyLevels) {
+    const r = [];
+    let checked = true;
+    for (const [levelName, config] of Object.entries(difficultyLevels)){
+        //label><input type="radio" name="difficulty" value="easiest" checked/>easiest (10x10x10)</label>
+        const input = document.createElement("input")
+        input.type = "radio";
+        input.name = "difficulty";
+        input.value = levelName;
+        input.checked = checked;
+        checked = false;
+        const label = document.createElement("label");
+        label.append(input, `${levelName} (${config.x}x${config.y}x${config.mines})`)
+        r.push(label);
+    }
+    parent.innerHTML = [];
+    parent.append.apply(parent, r)
+}
+
+
+window.addEventListener("load", () => {
+    const gameFieldElement = document.getElementById("game-field");
+    const remainingFlagsElement = document.getElementById("remaining-flags")
+    const stopwatchElement = document.getElementById("stopwatch")
+
+    const view = new GameView({ gameFieldElement, remainingFlagsElement, stopwatchElement })
+    const gameSessionsHolder = new GameSessionHolder(view);
+
+    populateHTMLDifficultyVariants(
+        document.querySelector(".difficulty-predefined>.placeholder"),
+        DifficultyLevels,
+    )
+
+    const optionsController = new OptionsFormController({
+        newGame: gameSessionsHolder.applyConfigAndPlay.bind(gameSessionsHolder),
+        difficultyLevels: DifficultyLevels,
+    });
+
+    document.getElementById("options-form").addEventListener("submit", optionsController.onSubmit.bind(optionsController))
+    document.getElementById("new-game").addEventListener("click", gameSessionsHolder.playAgain.bind(gameSessionsHolder))
+
+    gameSessionsHolder.applyConfigAndPlay(optionsController.defaultConfig)
 });
 
